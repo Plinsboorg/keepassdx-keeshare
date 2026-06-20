@@ -274,6 +274,10 @@ open class Database {
     val allowDataCompression: Boolean
         get() = mDatabaseKDBX != null
 
+    /** Whether this database format supports KeeShare (KDBX only). */
+    val supportsKeeShare: Boolean
+        get() = mDatabaseKDBX != null
+
     val availableCompressionAlgorithms: List<CompressionAlgorithm>
         get() = mDatabaseKDBX?.availableCompressionAlgorithms ?: emptyList()
 
@@ -402,6 +406,13 @@ open class Database {
         return mDatabaseKDB?.getAllGroupsWithoutRoot()?.map { Group(it) }
             ?: mDatabaseKDBX?.getAllGroupsWithoutRoot()?.map { Group(it) }
             ?: listOf()
+    }
+
+    /** Iterate all indexed groups that have non-empty custom data. */
+    fun forEachGroupWithCustomData(action: (Group) -> Unit) {
+        mDatabaseKDBX?.getGroupIndexes()
+            ?.filter { it.customData.isNotEmpty() }
+            ?.forEach { action(Group(it)) }
     }
 
     val manageHistory: Boolean
@@ -619,12 +630,18 @@ open class Database {
     }
 
     @Throws(DatabaseInputException::class)
+    /**
+     * Merge data from another database stream into this database.
+     * If [targetGroup] is set, entries from the source root are placed
+     * into that group instead of this database's root (scoped merge).
+     */
     fun mergeData(
         databaseToMergeStream: InputStream,
         databaseToMergeMasterCredential: MasterCredential?,
         databaseToMergeChallengeResponseRetriever: (HardwareKey, ByteArray?) -> ByteArray,
         limits: Limits,
-        progressTaskUpdater: ProgressTaskUpdater?
+        progressTaskUpdater: ProgressTaskUpdater?,
+        targetGroup: Group? = null,
     ) {
 
         mDatabaseKDB?.let {
@@ -682,6 +699,7 @@ open class Database {
                     this.isRAMSufficient = { memoryWanted ->
                         limits.isMemorySufficientForBinary(memoryWanted)
                     }
+                    this.targetGroup = targetGroup?.groupKDBX
                 }
                 databaseToMerge.mDatabaseKDB?.let { databaseKDBToMerge ->
                     databaseMerger.merge(databaseKDBToMerge)
