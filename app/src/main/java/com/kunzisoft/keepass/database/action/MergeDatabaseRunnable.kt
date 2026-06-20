@@ -23,6 +23,7 @@ import android.content.Context
 import android.net.Uri
 import com.kunzisoft.keepass.database.ContextualDatabase
 import com.kunzisoft.keepass.database.MainCredential
+import com.kunzisoft.keepass.database.element.GroupId
 import com.kunzisoft.keepass.database.element.MasterCredential
 import com.kunzisoft.keepass.database.exception.UnknownDatabaseLocationException
 import com.kunzisoft.keepass.hardware.HardwareKey
@@ -38,7 +39,9 @@ class MergeDatabaseRunnable(
     database: ContextualDatabase,
     save: Boolean,
     challengeResponseRetriever: (HardwareKey, ByteArray?) -> ByteArray,
-    progressTaskUpdater: ProgressTaskUpdater?
+    progressTaskUpdater: ProgressTaskUpdater?,
+    // KeeShare: merge into this group only, without reloading the UI
+    private val mTargetGroupId: GroupId? = null,
 ) : SaveDatabaseRunnable(
     context,
     database,
@@ -63,9 +66,11 @@ class MergeDatabaseRunnable(
                     databaseToMergeMasterCredential = mergeMasterCredential,
                     databaseToMergeChallengeResponseRetriever = mDatabaseToMergeChallengeResponseRetriever,
                     limits = context.getLimits(),
-                    progressTaskUpdater = progressTaskUpdater
+                    progressTaskUpdater = progressTaskUpdater,
+                    targetGroup = mTargetGroupId?.let { getGroupById(it) }
                 )
-                wasReloaded = true
+                if (mTargetGroupId == null)
+                    wasReloaded = true
             }
         } catch (e: Exception) {
             setError(e)
