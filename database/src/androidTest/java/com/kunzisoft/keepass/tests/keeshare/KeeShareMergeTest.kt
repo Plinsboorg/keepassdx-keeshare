@@ -20,6 +20,7 @@
 package com.kunzisoft.keepass.tests.keeshare
 
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kunzisoft.keepass.database.crypto.kdf.Limits
 import com.kunzisoft.keepass.database.element.Database
 import com.kunzisoft.keepass.database.element.Entry
 import com.kunzisoft.keepass.database.element.Group
@@ -73,7 +74,7 @@ class KeeShareMergeTest {
                 containerFile.inputStream(),
                 MasterCredential(password.toCharArray()),
                 noOpChallengeResponse,
-                isRAMSufficient = { true },
+                limits = Limits({ _, _ -> true }, 1),
                 progressTaskUpdater = null,
                 targetGroup = targetGroup
             )

@@ -36,6 +36,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.viewModels
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -45,6 +46,7 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.GravityCompat
 import androidx.core.view.isVisible
+import androidx.documentfile.provider.DocumentFile
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -61,8 +63,8 @@ import com.kunzisoft.keepass.activities.fragments.GroupFragment
 import com.kunzisoft.keepass.activities.fragments.SearchFragment
 import com.kunzisoft.keepass.activities.helpers.ExternalFileHelper
 import com.kunzisoft.keepass.database.MainCredential
+import com.kunzisoft.keepass.database.helper.getLocalizedMessage
 import com.kunzisoft.keepass.database.keeshare.KeeShareReference
-import com.kunzisoft.keepass.keeshare.KeeShareObserver
 import com.kunzisoft.keepass.utils.UriUtil.takeUriPermission
 import com.kunzisoft.keepass.activities.legacy.DatabaseLockActivity
 import com.kunzisoft.keepass.adapters.BreadcrumbAdapter
@@ -169,7 +171,6 @@ class GroupActivity : DatabaseLockActivity() {
     private var mExternalFileHelper: ExternalFileHelper? = null
     private var mKeeShareFileHelper: ExternalFileHelper? = null
     private var mPendingKeeShareGroupId: String? = null
-    private var mKeeShareObserver: KeeShareObserver? = null
 
 
     private val mEntryActivityResultLauncher = EntryEditActivity.registerForEntryResult(this) { entryId ->
@@ -356,7 +357,11 @@ class GroupActivity : DatabaseLockActivity() {
                     contentResolver?.takeUriPermission(selectedUri)
                     PreferencesUtil.setKeeShareContainerUri(this, groupId, selectedUri.toString())
                     mPendingKeeShareGroupId = null
-                    mDatabaseViewModel.database?.let { startKeeShareObservers(it) }
+                    mDatabaseViewModel.database?.let { database ->
+                        // Always import a newly linked container
+                        database.keeShareImportedVersions.remove(groupId)
+                        importKeeShareContainers(database)
+                    }
                 }
             }
         }
@@ -838,7 +843,7 @@ class GroupActivity : DatabaseLockActivity() {
 
     override fun onDatabaseRetrieved(database: ContextualDatabase) {
         super.onDatabaseRetrieved(database)
-        startKeeShareObservers(database)
+        importKeeShareContainers(database)
 
         mGroupViewModel.onDatabaseLoaded(database)
 
@@ -870,7 +875,16 @@ class GroupActivity : DatabaseLockActivity() {
         result: ActionRunnable.Result
     ) {
         if (actionTask == DatabaseTaskNotificationService.ACTION_KEESHARE_MERGE_TASK) {
-            if (result.isSuccess) loadGroup()
+            if (result.isSuccess) {
+                loadGroup()
+            } else {
+                val message = result.exception?.getLocalizedMessage(resources) ?: result.message
+                Toast.makeText(
+                    this,
+                    getString(R.string.keeshare_import_error, message ?: ""),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             return
         }
         super.onDatabaseActionFinished(database, actionTask, result)
@@ -1077,12 +1091,6 @@ class GroupActivity : DatabaseLockActivity() {
         toolbarAction?.updateButtonPaddingStart()
 
         loadGroup()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        mKeeShareObserver?.stopAll(contentResolver)
-        mKeeShareObserver = null
     }
 
     private fun prepareDatabaseNavMenu() {
@@ -1296,43 +1304,35 @@ class GroupActivity : DatabaseLockActivity() {
 
     // KeeShare
 
-    private data class KeeShareConfig(
-        val containerUri: Uri,
-        val password: String,
-        val groupId: com.kunzisoft.keepass.database.element.GroupId,
-    )
-
-    private val mKeeShareConfigs = mutableMapOf<String, KeeShareConfig>()
-    private var mKeeShareInitialMergeDone = false
-
-    private fun startKeeShareObservers(database: ContextualDatabase) {
-        mKeeShareObserver?.stopAll(contentResolver)
+    /**
+     * Import the linked KeeShare containers that changed since their last import.
+     * The database is retrieved each time the activity starts, so containers are
+     * imported when the database is opened and when coming back to the app.
+     */
+    private fun importKeeShareContainers(database: ContextualDatabase) {
         if (!database.supportsKeeShare) return
-        mKeeShareObserver = KeeShareObserver { containerUri ->
-            mergeKeeShareContainer(containerUri.toString())
-        }
         database.forEachGroupWithCustomData { group ->
-            val ref = KeeShareReference.fromCustomData(group.customData) ?: return@forEachGroupWithCustomData
-            val uriString = PreferencesUtil.getKeeShareContainerUri(this, group.nodeId.toString())
+            val reference = KeeShareReference.fromCustomData(group.customData)
+            if (reference == null || !reference.isImporting) return@forEachGroupWithCustomData
+            val groupId = group.nodeId.toString()
+            val containerUri = PreferencesUtil.getKeeShareContainerUri(this, groupId)
+                ?.let { Uri.parse(it) }
                 ?: return@forEachGroupWithCustomData
-            mKeeShareConfigs[uriString] = KeeShareConfig(Uri.parse(uriString), ref.password, group.nodeId)
-            mKeeShareObserver?.observe(contentResolver, Uri.parse(uriString))
-            if (!mKeeShareInitialMergeDone) {
-                mergeKeeShareContainer(uriString)
+            // 0 when the provider doesn't give it, then the container is imported once
+            val lastModified = try {
+                DocumentFile.fromSingleUri(this, containerUri)?.lastModified() ?: 0L
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to read KeeShare container info", e)
+                0L
             }
+            if (database.keeShareImportedVersions[groupId] == lastModified) return@forEachGroupWithCustomData
+            database.keeShareImportedVersions[groupId] = lastModified
+            mDatabaseViewModel.mergeKeeShare(
+                containerUri,
+                MainCredential(reference.password.toCharArray()),
+                group.nodeId,
+            )
         }
-        if (mKeeShareConfigs.isNotEmpty()) mKeeShareInitialMergeDone = true
-    }
-
-    private fun mergeKeeShareContainer(uriString: String) {
-        val config = mKeeShareConfigs[uriString] ?: return
-        mDatabaseViewModel.mergeKeeShare(
-            config.containerUri,
-            MainCredential(
-                if (config.password.isNotEmpty()) config.password.toCharArray() else CharArray(0),
-            ),
-            config.groupId,
-        )
     }
 
     companion object {

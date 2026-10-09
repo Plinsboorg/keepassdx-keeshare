@@ -19,6 +19,7 @@
  */
 package com.kunzisoft.keepass.tests.keeshare
 
+import com.kunzisoft.keepass.database.crypto.kdf.Limits
 import com.kunzisoft.keepass.database.element.CustomData
 import com.kunzisoft.keepass.database.element.CustomDataItem
 import com.kunzisoft.keepass.database.element.Database
@@ -95,7 +96,8 @@ object TestDatabaseBuilder {
         val outFile = File(cacheDir, filename)
         val tmpFile = File(cacheDir, "$filename.tmp")
         db.saveData(tmpFile, { outFile.outputStream() },
-            MasterCredential(password.toCharArray()), noOpChallengeResponse)
+            MasterCredential(password.toCharArray()), noOpChallengeResponse,
+            Limits({ _, _ -> true }, 1))
         return outFile
     }
 
@@ -104,7 +106,7 @@ object TestDatabaseBuilder {
         val reloaded = Database()
         reloaded.loadData(file.inputStream(), MasterCredential(password.toCharArray()),
             noOpChallengeResponse, readOnly = false, allowUserVerification = false,
-            cacheDirectory = cacheDir, isRAMSufficient = { true },
+            cacheDirectory = cacheDir, limits = Limits({ _, _ -> true }, 1),
             fixDuplicateUUID = false, progressTaskUpdater = null)
         file.delete()
         return reloaded

@@ -813,4 +813,5 @@
     <string name="user_verification_database_credential">Enter the first four characters of your database password</string>
     <string name="first_chars">First chars</string>
     <string name="check">Check</string>
+    <string name="keeshare_import_error">KeeShare import failed: %1$s</string>
 </resources>

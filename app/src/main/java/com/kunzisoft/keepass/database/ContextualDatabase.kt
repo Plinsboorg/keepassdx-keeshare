@@ -46,6 +46,10 @@ class ContextualDatabase: DatabaseInfo() {
     // To reload the main activity
     var wasReloaded = false
 
+    // KeeShare container URI to its last modification time when it was imported,
+    // to import a container again only when it has changed
+    val keeShareImportedVersions = mutableMapOf<String, Long>()
+
     // File description
     var snapFileDatabaseInfo: SnapFileDatabaseInfo? = null
         private set
@@ -163,6 +167,7 @@ class ContextualDatabase: DatabaseInfo() {
 
     override fun clearIndexesAndBinaries(filesDirectory: File?) {
         iconDrawableFactory.clearCache()
+        keeShareImportedVersions.clear()
         super.clearIndexesAndBinaries(filesDirectory)
     }
 

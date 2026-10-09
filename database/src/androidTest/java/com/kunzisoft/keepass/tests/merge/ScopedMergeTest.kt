@@ -20,6 +20,7 @@
 package com.kunzisoft.keepass.tests.merge
 
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kunzisoft.keepass.database.crypto.kdf.Limits
 import com.kunzisoft.keepass.database.element.Database
 import com.kunzisoft.keepass.database.element.Entry
 import com.kunzisoft.keepass.database.element.Group
@@ -67,7 +68,8 @@ class ScopedMergeTest {
         val file = File(cacheDir, "$name.kdbx")
         val tmp = File(cacheDir, "$name.tmp")
         db.saveData(tmp, { file.outputStream() },
-            MasterCredential(password.toCharArray()), noOpChallengeResponse)
+            MasterCredential(password.toCharArray()), noOpChallengeResponse,
+            Limits({ _, _ -> true }, 1))
         db.clearAndClose()
         return file
     }
@@ -100,12 +102,13 @@ class ScopedMergeTest {
         val file = File(cacheDir, "main.kdbx")
         val tmp = File(cacheDir, "main.tmp")
         mainDb.saveData(tmp, { file.outputStream() },
-            MasterCredential(password.toCharArray()), noOpChallengeResponse)
+            MasterCredential(password.toCharArray()), noOpChallengeResponse,
+            Limits({ _, _ -> true }, 1))
 
         mainDb = Database()
         mainDb.loadData(file.inputStream(), MasterCredential(password.toCharArray()),
             noOpChallengeResponse, readOnly = false, allowUserVerification = false,
-            cacheDirectory = cacheDir, isRAMSufficient = { true },
+            cacheDirectory = cacheDir, limits = Limits({ _, _ -> true }, 1),
             fixDuplicateUUID = false, progressTaskUpdater = null)
     }
 
@@ -118,7 +121,7 @@ class ScopedMergeTest {
             containerFile.inputStream(),
             MasterCredential(password.toCharArray()),
             noOpChallengeResponse,
-            isRAMSufficient = { true },
+            limits = Limits({ _, _ -> true }, 1),
             progressTaskUpdater = null,
         )
 
@@ -142,7 +145,7 @@ class ScopedMergeTest {
             containerFile.inputStream(),
             MasterCredential(password.toCharArray()),
             noOpChallengeResponse,
-            isRAMSufficient = { true },
+            limits = Limits({ _, _ -> true }, 1),
             progressTaskUpdater = null,
             targetGroup = target,
         )
@@ -165,7 +168,7 @@ class ScopedMergeTest {
             containerFile.inputStream(),
             MasterCredential(password.toCharArray()),
             noOpChallengeResponse,
-            isRAMSufficient = { true },
+            limits = Limits({ _, _ -> true }, 1),
             progressTaskUpdater = null,
             targetGroup = target,
         )
@@ -192,7 +195,7 @@ class ScopedMergeTest {
             containerFile.inputStream(),
             MasterCredential(password.toCharArray()),
             noOpChallengeResponse,
-            isRAMSufficient = { true },
+            limits = Limits({ _, _ -> true }, 1),
             progressTaskUpdater = null,
             targetGroup = target,
         )
@@ -213,7 +216,7 @@ class ScopedMergeTest {
             containerFile.inputStream(),
             MasterCredential(password.toCharArray()),
             noOpChallengeResponse,
-            isRAMSufficient = { true },
+            limits = Limits({ _, _ -> true }, 1),
             progressTaskUpdater = null,
             targetGroup = target,
         )

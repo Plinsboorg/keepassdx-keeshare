@@ -26,6 +26,7 @@ import com.kunzisoft.keepass.database.MainCredential
 import com.kunzisoft.keepass.database.element.GroupId
 import com.kunzisoft.keepass.database.element.MasterCredential
 import com.kunzisoft.keepass.database.exception.UnknownDatabaseLocationException
+import com.kunzisoft.keepass.database.keeshare.KeeShareContainer
 import com.kunzisoft.keepass.hardware.HardwareKey
 import com.kunzisoft.keepass.tasks.ProgressTaskUpdater
 import com.kunzisoft.keepass.utils.AppUtil.getLimits
@@ -58,7 +59,9 @@ class MergeDatabaseRunnable(
             val contentResolver = context.contentResolver
             val mergeStream = contentResolver.getUriInputStream(
                 mDatabaseToMergeUri ?: database.fileUri
-            ) ?: throw UnknownDatabaseLocationException()
+            )?.let { stream ->
+                if (mTargetGroupId != null) KeeShareContainer.databaseStream(stream) else stream
+            } ?: throw UnknownDatabaseLocationException()
             mergeMasterCredential = mDatabaseToMergeMainCredential?.toMasterCredential(contentResolver)
             database.apply {
                 mergeData(
