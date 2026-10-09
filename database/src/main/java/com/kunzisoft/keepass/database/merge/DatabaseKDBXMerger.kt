@@ -195,42 +195,10 @@ class DatabaseKDBXMerger(private var database: DatabaseKDBX) {
      */
     fun merge(databaseToMerge: DatabaseKDBX) {
 
-        // Merge settings
-        if (database.nameChanged.isBefore(databaseToMerge.nameChanged)) {
-            database.name = databaseToMerge.name
-            database.nameChanged = databaseToMerge.nameChanged
-        }
-        if (database.descriptionChanged.isBefore(databaseToMerge.descriptionChanged)) {
-            database.description = databaseToMerge.description
-            database.descriptionChanged = databaseToMerge.descriptionChanged
-        }
-        if (database.defaultUserNameChanged.isBefore(databaseToMerge.defaultUserNameChanged)) {
-            database.defaultUserName = databaseToMerge.defaultUserName
-            database.defaultUserNameChanged = databaseToMerge.defaultUserNameChanged
-        }
-        if (database.keyLastChanged.isBefore(databaseToMerge.keyLastChanged)) {
-            database.keyChangeRecDays = databaseToMerge.keyChangeRecDays
-            database.keyChangeForceDays = databaseToMerge.keyChangeForceDays
-            database.isKeyChangeForceOnce = databaseToMerge.isKeyChangeForceOnce
-            database.keyLastChanged = databaseToMerge.keyLastChanged
-        }
-        if (database.recycleBinChanged.isBefore(databaseToMerge.recycleBinChanged)) {
-            database.isRecycleBinEnabled = databaseToMerge.isRecycleBinEnabled
-            database.recycleBinUUID = databaseToMerge.recycleBinUUID
-            database.recycleBinChanged = databaseToMerge.recycleBinChanged
-        }
-        if (database.entryTemplatesGroupChanged.isBefore(databaseToMerge.entryTemplatesGroupChanged)) {
-            database.entryTemplatesGroup = databaseToMerge.entryTemplatesGroup
-            database.entryTemplatesGroupChanged = databaseToMerge.entryTemplatesGroupChanged
-        }
-        if (database.settingsChanged.isBefore(databaseToMerge.settingsChanged)) {
-            database.color = databaseToMerge.color
-            database.compressionAlgorithm = databaseToMerge.compressionAlgorithm
-            database.historyMaxItems = databaseToMerge.historyMaxItems
-            database.historyMaxSize = databaseToMerge.historyMaxSize
-            database.encryptionAlgorithm = databaseToMerge.encryptionAlgorithm
-            database.kdfEngine = databaseToMerge.kdfEngine
-            database.settingsChanged = databaseToMerge.settingsChanged
+        // A scoped merge (KeeShare) only imports the group content,
+        // the container's database settings must not replace ours
+        if (targetGroup == null) {
+            mergeSettings(databaseToMerge)
         }
 
         val rootGroup = database.rootGroup
@@ -253,7 +221,8 @@ class DatabaseKDBXMerger(private var database: DatabaseKDBX) {
         }
 
         // Merge root group
-        if (rootGroup.lastModificationTime.isBefore(rootGroupToMerge.lastModificationTime)) {
+        if (targetGroup == null
+            && rootGroup.lastModificationTime.isBefore(rootGroupToMerge.lastModificationTime)) {
             rootGroup.updateWith(rootGroupToMerge, updateParents = false)
         }
         // Merge children
@@ -273,7 +242,9 @@ class DatabaseKDBXMerger(private var database: DatabaseKDBX) {
         )
 
         // Merge custom data in database header
-        mergeCustomData(database.customData, databaseToMerge.customData)
+        if (targetGroup == null) {
+            mergeCustomData(database.customData, databaseToMerge.customData)
+        }
 
         // Merge icons
         databaseToMerge.iconsManager.doForEachCustomIcon { iconImageCustom, binaryData ->
@@ -320,14 +291,64 @@ class DatabaseKDBXMerger(private var database: DatabaseKDBX) {
     }
 
     /**
+     * Merge database settings, keeping the most recently changed values
+     */
+    private fun mergeSettings(databaseToMerge: DatabaseKDBX) {
+        if (database.nameChanged.isBefore(databaseToMerge.nameChanged)) {
+            database.name = databaseToMerge.name
+            database.nameChanged = databaseToMerge.nameChanged
+        }
+        if (database.descriptionChanged.isBefore(databaseToMerge.descriptionChanged)) {
+            database.description = databaseToMerge.description
+            database.descriptionChanged = databaseToMerge.descriptionChanged
+        }
+        if (database.defaultUserNameChanged.isBefore(databaseToMerge.defaultUserNameChanged)) {
+            database.defaultUserName = databaseToMerge.defaultUserName
+            database.defaultUserNameChanged = databaseToMerge.defaultUserNameChanged
+        }
+        if (database.keyLastChanged.isBefore(databaseToMerge.keyLastChanged)) {
+            database.keyChangeRecDays = databaseToMerge.keyChangeRecDays
+            database.keyChangeForceDays = databaseToMerge.keyChangeForceDays
+            database.isKeyChangeForceOnce = databaseToMerge.isKeyChangeForceOnce
+            database.keyLastChanged = databaseToMerge.keyLastChanged
+        }
+        if (database.recycleBinChanged.isBefore(databaseToMerge.recycleBinChanged)) {
+            database.isRecycleBinEnabled = databaseToMerge.isRecycleBinEnabled
+            database.recycleBinUUID = databaseToMerge.recycleBinUUID
+            database.recycleBinChanged = databaseToMerge.recycleBinChanged
+        }
+        if (database.entryTemplatesGroupChanged.isBefore(databaseToMerge.entryTemplatesGroupChanged)) {
+            database.entryTemplatesGroup = databaseToMerge.entryTemplatesGroup
+            database.entryTemplatesGroupChanged = databaseToMerge.entryTemplatesGroupChanged
+        }
+        if (database.settingsChanged.isBefore(databaseToMerge.settingsChanged)) {
+            database.color = databaseToMerge.color
+            database.compressionAlgorithm = databaseToMerge.compressionAlgorithm
+            database.historyMaxItems = databaseToMerge.historyMaxItems
+            database.historyMaxSize = databaseToMerge.historyMaxSize
+            database.encryptionAlgorithm = databaseToMerge.encryptionAlgorithm
+            database.kdfEngine = databaseToMerge.kdfEngine
+            database.settingsChanged = databaseToMerge.settingsChanged
+        }
+    }
+
+    /**
      * Delete an entry from the database with the [deletedEntry] id
      */
     private fun deleteEntry(deletedEntry: DeletedObject) {
         val databaseEntry = database.getEntryById(deletedEntry.uuid)
         if (databaseEntry != null
+            && isInMergeScope(databaseEntry)
             && deletedEntry.deletionTime.isAfter(databaseEntry.lastModificationTime)) {
             database.removeEntryFrom(databaseEntry, databaseEntry.parent)
         }
+    }
+
+    /**
+     * For a scoped merge, only nodes inside [targetGroup] can be deleted
+     */
+    private fun isInMergeScope(node: NodeVersioned<UUID, GroupKDBX, EntryKDBX>): Boolean {
+        return targetGroup?.let { node.isContainedIn(it) } ?: true
     }
 
     /**
@@ -366,6 +387,8 @@ class DatabaseKDBXMerger(private var database: DatabaseKDBX) {
     private fun deleteGroup(deletedGroup: DeletedObject, deletedObjects: Set<DeletedObject>) {
         val databaseGroup = database.getGroupById(deletedGroup.uuid)
         if (databaseGroup != null
+            && databaseGroup != targetGroup
+            && isInMergeScope(databaseGroup)
             && deletedGroup.deletionTime.isAfter(databaseGroup.lastModificationTime)) {
             // Must be in dedicated list to prevent modification collision
             val entriesToMove = mutableListOf<EntryKDBX>()
