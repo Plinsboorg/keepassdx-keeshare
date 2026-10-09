@@ -93,6 +93,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.Serializable
 
@@ -103,6 +105,9 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
     private var mDatabase: ContextualDatabase? = null
 
     private val mainScope = CoroutineScope(Dispatchers.Main)
+    // Silent KeeShare merges are not blocked by the progress dialog,
+    // so actions are run one at a time to never modify the database concurrently
+    private val mActionMutex = Mutex()
 
     private var mDatabaseListeners = mutableListOf<DatabaseListener>()
     private var mDatabaseInfoListeners = mutableListOf<DatabaseInfoListener>()
@@ -397,6 +402,8 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
             mainScope.launch {
                 executeAction(
                     this@DatabaseTaskNotificationService,
+                    // The challenge response is awaited by the running action
+                    intentAction != ACTION_CHALLENGE_RESPONDED,
                     {
                         mActionRunning++
                         if (isMainAction) {
@@ -661,6 +668,7 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
      */
     private suspend fun executeAction(
         progressTaskUpdater: ProgressTaskUpdater,
+        exclusive: Boolean,
         onPreExecute: () -> Unit,
         onExecute: (ProgressTaskUpdater?) -> ActionRunnable?,
         onPostExecute: (result: ActionRunnable.Result) -> Unit,
@@ -670,7 +678,11 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
             onExecute.invoke(progressTaskUpdater)?.apply {
                 val asyncResult: Deferred<ActionRunnable.Result> = async {
                     // Run the actionRunnable
-                    run()
+                    if (exclusive) {
+                        mActionMutex.withLock { run() }
+                    } else {
+                        run()
+                    }
                     result
                 }
                 withContext(Dispatchers.Main) {
