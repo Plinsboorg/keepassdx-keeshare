@@ -374,7 +374,7 @@ class DatabaseKDBXMerger(private var database: DatabaseKDBX) {
     ): GroupKDBX? {
         var parent = node.parent
         while (parent != null && deletedObjects.containsNode(parent)) {
-            parent = node.parent
+            parent = parent.parent
         }
         return parent
     }

@@ -9,6 +9,7 @@ import com.kunzisoft.keepass.database.element.entry.EntryKDBX
 import com.kunzisoft.keepass.database.element.group.GroupKDBX
 import org.joda.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -121,6 +122,47 @@ class ScopedMergeSafetyTest {
         assertNotNull("Entry outside the share must survive", mainDb.getEntryById(outside.nodeId))
         assertNull("Entry inside the share is deleted", mainDb.getEntryById(inside.nodeId))
         assertNotNull("The shared group itself must survive", mainDb.getGroupById(targetGroup.nodeId))
+    }
+
+    @Test
+    fun deletingNestedGroupsTerminates() {
+        // Deleted objects are in a HashSet, so the order of deletion depends on the
+        // random UUIDs. Repeat to also cover Inner being deleted before Outer.
+        repeat(20) {
+            // Team > Outer > Inner > Kept
+            val outer = mainDb.createGroup().apply {
+                title = "Outer"
+                lastModificationTime = longAgo
+            }
+            mainDb.addGroupTo(outer, targetGroup)
+            val inner = mainDb.createGroup().apply {
+                title = "Inner"
+                lastModificationTime = longAgo
+            }
+            mainDb.addGroupTo(inner, outer)
+            val kept = mainDb.createEntry().apply {
+                title = "Kept"
+                lastModificationTime = longAgo
+            }
+            mainDb.addEntryTo(kept, inner)
+
+            val container = buildContainer().apply {
+                addDeletedObject(DeletedObject(inner.nodeId.id))
+                addDeletedObject(DeletedObject(outer.nodeId.id))
+            }
+            // In a thread, as a test timeout can't stop a busy loop under Robolectric
+            val merge = Thread { scopedMerge(container) }.apply {
+                isDaemon = true
+                start()
+                join(5_000)
+            }
+            assertFalse("Merge must not loop forever", merge.isAlive)
+
+            assertNull(mainDb.getGroupById(inner.nodeId))
+            assertNull(mainDb.getGroupById(outer.nodeId))
+            assertEquals("Kept entry moves to the first parent not deleted",
+                targetGroup, mainDb.getEntryById(kept.nodeId)?.parent)
+        }
     }
 
     @Test
