@@ -13,22 +13,37 @@ object KeeShareContainer {
 
     private const val SIGNED_CONTAINER_ENTRY = "container.share.kdbx"
 
+    class Opened(val databaseStream: InputStream, val isSigned: Boolean)
+
     /**
      * Retrieve the KDBX stream of a container. For a signed container,
      * the signature is not verified.
      */
     @Throws(IOException::class)
-    fun databaseStream(containerStream: InputStream): InputStream {
+    fun open(containerStream: InputStream): Opened? {
         val stream = BufferedInputStream(containerStream)
-        if (!isZip(stream)) return stream
+        // A new empty file, the container doesn't exist yet
+        stream.mark(1)
+        if (stream.read() < 0) {
+            stream.close()
+            return null
+        }
+        stream.reset()
+        if (!isZip(stream)) return Opened(stream, isSigned = false)
         val zipStream = ZipInputStream(stream)
         var entry = zipStream.nextEntry
         while (entry != null) {
-            if (entry.name == SIGNED_CONTAINER_ENTRY) return zipStream
+            if (entry.name == SIGNED_CONTAINER_ENTRY) return Opened(zipStream, isSigned = true)
             entry = zipStream.nextEntry
         }
         zipStream.close()
         throw IOException("Signed KeeShare container without $SIGNED_CONTAINER_ENTRY")
+    }
+
+    @Throws(IOException::class)
+    fun databaseStream(containerStream: InputStream): InputStream {
+        return open(containerStream)?.databaseStream
+            ?: throw IOException("Empty KeeShare container")
     }
 
     private fun isZip(stream: BufferedInputStream): Boolean {

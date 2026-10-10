@@ -48,6 +48,10 @@ class CustomData : Parcelable {
         mCustomDataItems[customDataItem.key] = customDataItem
     }
 
+    fun remove(key: String): CustomDataItem? {
+        return mCustomDataItems.remove(key)
+    }
+
     fun containsItemWithValue(value: String): Boolean {
         return mCustomDataItems.any { mapEntry -> mapEntry.value.value.equals(value, true) }
     }

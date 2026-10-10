@@ -34,7 +34,8 @@ data class KeeShareReference(
     val uuid: UUID = UUID(0, 0),
     val path: String = "",
     val password: String = "",
-    val keepGroups: Boolean = false
+    // Default of KeePassXC
+    val keepGroups: Boolean = true
 ) {
 
     val isImporting: Boolean get() = type and IMPORT_FROM != 0 && path.isNotEmpty()
@@ -109,7 +110,7 @@ data class KeeShareReference(
             var uuid = UUID(0, 0)
             var path = ""
             var password = ""
-            var keepGroups = false
+            var keepGroups = true
             var insideType = false
             var currentTag = ""
 

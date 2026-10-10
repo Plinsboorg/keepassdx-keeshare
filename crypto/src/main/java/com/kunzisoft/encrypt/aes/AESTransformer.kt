@@ -45,7 +45,9 @@ object AESTransformer {
             throw IOException("Invalid seed or key")
         }
         return try {
-            NativeLib.init()
+            if (!NativeLib.init()) {
+                throw IOException("Native library not available")
+            }
             NativeAESKeyTransformer.nTransformKey(seed, key, rounds.toLong())
         } catch (exception: Exception) {
             Log.e(AESTransformer::class.java.simpleName, "Unable to perform native AES key transformation", exception)

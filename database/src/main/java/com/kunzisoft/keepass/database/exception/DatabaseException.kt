@@ -123,6 +123,8 @@ class XMLMalformedDatabaseException : DatabaseInputException {
 
 class MergeDatabaseKDBException : DatabaseInputException()
 
+class KeeShareDatabaseException(message: String) : DatabaseException(message)
+
 class MoveEntryDatabaseException : DatabaseException()
 
 class MoveGroupDatabaseException : DatabaseException()
