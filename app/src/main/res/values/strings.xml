@@ -813,5 +813,17 @@
     <string name="user_verification_database_credential">Enter the first four characters of your database password</string>
     <string name="first_chars">First chars</string>
     <string name="check">Check</string>
-    <string name="keeshare_import_error">KeeShare import failed: %1$s</string>
+    <string name="keeshare_import_error">KeeShare sync failed: %1$s</string>
+    <string name="keeshare">KeeShare</string>
+    <string name="keeshare_group">KeeShare: %1$s</string>
+    <string name="keeshare_type_synchronize">Synchronize (import and export)</string>
+    <string name="keeshare_type_import">Import only</string>
+    <string name="keeshare_type_export">Export only</string>
+    <string name="keeshare_no_file">No file selected</string>
+    <string name="keeshare_choose_file">Choose file</string>
+    <string name="keeshare_new_file">New file</string>
+    <string name="keeshare_password">Share password</string>
+    <string name="keeshare_keep_groups">Include subgroups</string>
+    <string name="keeshare_remove">Stop sharing</string>
+    <string name="keeshare_explanation">The group is synchronized with the shared database file, like KeeShare in KeePassXC. Choose the file shared with your other devices, or create a new one. The file is protected by the share password.</string>
 </resources>

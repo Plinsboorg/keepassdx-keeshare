@@ -216,13 +216,9 @@ class DatabaseViewModel(application: Application): AndroidViewModel(application)
         mDatabaseTaskProvider.startDatabaseMerge(save, fromDatabaseUri, mainCredential)
     }
 
-    /** Silent scoped merge for KeeShare container import. */
-    fun mergeKeeShare(
-        containerUri: Uri,
-        mainCredential: MainCredential,
-        targetGroupId: GroupId,
-    ) {
-        mDatabaseTaskProvider.startKeeShareMerge(containerUri, mainCredential, targetGroupId)
+    /** Silent synchronization of a KeeShare group with its container. */
+    fun synchronizeKeeShare(groupId: GroupId, export: Boolean) {
+        mDatabaseTaskProvider.startKeeShareSync(groupId, export)
     }
 
     fun reloadDatabase(fixDuplicateUuid: Boolean, forceReload: Boolean = false) {

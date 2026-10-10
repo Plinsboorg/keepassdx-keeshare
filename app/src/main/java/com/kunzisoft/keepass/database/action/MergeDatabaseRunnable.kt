@@ -23,10 +23,8 @@ import android.content.Context
 import android.net.Uri
 import com.kunzisoft.keepass.database.ContextualDatabase
 import com.kunzisoft.keepass.database.MainCredential
-import com.kunzisoft.keepass.database.element.GroupId
 import com.kunzisoft.keepass.database.element.MasterCredential
 import com.kunzisoft.keepass.database.exception.UnknownDatabaseLocationException
-import com.kunzisoft.keepass.database.keeshare.KeeShareContainer
 import com.kunzisoft.keepass.hardware.HardwareKey
 import com.kunzisoft.keepass.tasks.ProgressTaskUpdater
 import com.kunzisoft.keepass.utils.AppUtil.getLimits
@@ -40,9 +38,7 @@ class MergeDatabaseRunnable(
     database: ContextualDatabase,
     save: Boolean,
     challengeResponseRetriever: (HardwareKey, ByteArray?) -> ByteArray,
-    progressTaskUpdater: ProgressTaskUpdater?,
-    // KeeShare: merge into this group only, without reloading the UI
-    private val mTargetGroupId: GroupId? = null,
+    progressTaskUpdater: ProgressTaskUpdater?
 ) : SaveDatabaseRunnable(
     context,
     database,
@@ -59,9 +55,7 @@ class MergeDatabaseRunnable(
             val contentResolver = context.contentResolver
             val mergeStream = contentResolver.getUriInputStream(
                 mDatabaseToMergeUri ?: database.fileUri
-            )?.let { stream ->
-                if (mTargetGroupId != null) KeeShareContainer.databaseStream(stream) else stream
-            } ?: throw UnknownDatabaseLocationException()
+            ) ?: throw UnknownDatabaseLocationException()
             mergeMasterCredential = mDatabaseToMergeMainCredential?.toMasterCredential(contentResolver)
             database.apply {
                 mergeData(
@@ -69,11 +63,9 @@ class MergeDatabaseRunnable(
                     databaseToMergeMasterCredential = mergeMasterCredential,
                     databaseToMergeChallengeResponseRetriever = mDatabaseToMergeChallengeResponseRetriever,
                     limits = context.getLimits(),
-                    progressTaskUpdater = progressTaskUpdater,
-                    targetGroup = mTargetGroupId?.let { getGroupById(it) }
+                    progressTaskUpdater = progressTaskUpdater
                 )
-                if (mTargetGroupId == null)
-                    wasReloaded = true
+                wasReloaded = true
             }
         } catch (e: Exception) {
             setError(e)

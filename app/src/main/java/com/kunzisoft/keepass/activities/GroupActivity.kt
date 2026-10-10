@@ -57,15 +57,17 @@ import com.google.android.material.timepicker.MaterialTimePicker.Builder
 import com.kunzisoft.keepass.R
 import com.kunzisoft.keepass.activities.dialogs.GroupDialogFragment
 import com.kunzisoft.keepass.activities.dialogs.GroupEditDialogFragment
+import com.kunzisoft.keepass.activities.dialogs.KeeShareDialogFragment
 import com.kunzisoft.keepass.activities.dialogs.MainCredentialDialogFragment
 import com.kunzisoft.keepass.activities.dialogs.SortDialogFragment
 import com.kunzisoft.keepass.activities.fragments.GroupFragment
 import com.kunzisoft.keepass.activities.fragments.SearchFragment
 import com.kunzisoft.keepass.activities.helpers.ExternalFileHelper
-import com.kunzisoft.keepass.database.MainCredential
+import com.kunzisoft.keepass.database.element.CustomData
+import com.kunzisoft.keepass.database.element.CustomDataItem
+import com.kunzisoft.keepass.database.element.GroupId
 import com.kunzisoft.keepass.database.helper.getLocalizedMessage
 import com.kunzisoft.keepass.database.keeshare.KeeShareReference
-import com.kunzisoft.keepass.utils.UriUtil.takeUriPermission
 import com.kunzisoft.keepass.activities.legacy.DatabaseLockActivity
 import com.kunzisoft.keepass.adapters.BreadcrumbAdapter
 import com.kunzisoft.keepass.credentialprovider.EntrySelectionHelper
@@ -108,6 +110,7 @@ import com.kunzisoft.keepass.timeout.TimeoutHelper
 import com.kunzisoft.keepass.utils.KeyboardUtil.hideKeyboard
 import com.kunzisoft.keepass.utils.TimeUtil.datePickerToDataDate
 import com.kunzisoft.keepass.utils.UriUtil.openUrl
+import com.kunzisoft.keepass.utils.getParcelableCompat
 import com.kunzisoft.keepass.view.AddNodeButtonView
 import com.kunzisoft.keepass.view.NavigationDatabaseView
 import com.kunzisoft.keepass.view.ToolbarAction
@@ -131,6 +134,7 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import org.joda.time.LocalDateTime
 import java.util.EnumSet
+import java.util.UUID
 
 
 class GroupActivity : DatabaseLockActivity() {
@@ -169,8 +173,6 @@ class GroupActivity : DatabaseLockActivity() {
 
     // Manage merge
     private var mExternalFileHelper: ExternalFileHelper? = null
-    private var mKeeShareFileHelper: ExternalFileHelper? = null
-    private var mPendingKeeShareGroupId: String? = null
 
 
     private val mEntryActivityResultLauncher = EntryEditActivity.registerForEntryResult(this) { entryId ->
@@ -206,6 +208,16 @@ class GroupActivity : DatabaseLockActivity() {
                     } else {
                         menu?.removeItem(R.id.menu_open)
                         menu?.removeItem(R.id.menu_edit)
+                    }
+
+                    // KeeShare for a single group
+                    if (database.isReadOnly
+                        || !database.supportsKeeShare
+                        || nodes.size != 1
+                        || nodes[0] !is GroupInfo
+                        || mGroupViewModel.containsRecycleBin(
+                            database, nodes.filterIsInstance<NodeInfo>())) {
+                        menu?.removeItem(R.id.menu_keeshare)
                     }
 
                     // Move
@@ -249,6 +261,10 @@ class GroupActivity : DatabaseLockActivity() {
                 }
                 R.id.menu_copy -> {
                     mGroupViewModel.onCopyNodesClicked()
+                    true
+                }
+                R.id.menu_keeshare -> {
+                    mGroupViewModel.onKeeShareNodeClicked()
                     true
                 }
                 R.id.menu_move -> {
@@ -350,20 +366,10 @@ class GroupActivity : DatabaseLockActivity() {
             }
         }
 
-        mKeeShareFileHelper = ExternalFileHelper(this)
-        mKeeShareFileHelper?.buildOpenDocument { uri ->
-            uri?.let { selectedUri ->
-                mPendingKeeShareGroupId?.let { groupId ->
-                    contentResolver?.takeUriPermission(selectedUri)
-                    PreferencesUtil.setKeeShareContainerUri(this, groupId, selectedUri.toString())
-                    mPendingKeeShareGroupId = null
-                    mDatabaseViewModel.database?.let { database ->
-                        // Always import a newly linked container
-                        database.keeShareImportedVersions.remove(groupId)
-                        importKeeShareContainers(database)
-                    }
-                }
-            }
+        supportFragmentManager.setFragmentResultListener(
+            KeeShareDialogFragment.REQUEST_KEY, this
+        ) { _, result ->
+            onKeeShareConfigured(result)
         }
 
         // Menu in drawer
@@ -656,8 +662,7 @@ class GroupActivity : DatabaseLockActivity() {
                                 addNodeButtonView?.hideOrShowButtonOnScrollListener(event.dy)
                             }
                             is GroupViewModel.GroupEvent.KeeShareClicked -> {
-                                mPendingKeeShareGroupId = event.groupId.toString()
-                                mKeeShareFileHelper?.openDocument()
+                                showKeeShareDialog(event.groupId)
                             }
                             is GroupViewModel.GroupEvent.HideKeyboard -> {
                                 hideKeyboard()
@@ -874,7 +879,7 @@ class GroupActivity : DatabaseLockActivity() {
         actionTask: String,
         result: ActionRunnable.Result
     ) {
-        if (actionTask == DatabaseTaskNotificationService.ACTION_KEESHARE_MERGE_TASK) {
+        if (actionTask == DatabaseTaskNotificationService.ACTION_KEESHARE_SYNC_TASK) {
             if (result.isSuccess) {
                 loadGroup()
             } else {
@@ -1327,12 +1332,58 @@ class GroupActivity : DatabaseLockActivity() {
             }
             if (database.keeShareImportedVersions[groupId] == lastModified) return@forEachGroupWithCustomData
             database.keeShareImportedVersions[groupId] = lastModified
-            mDatabaseViewModel.mergeKeeShare(
-                containerUri,
-                MainCredential(reference.password.toCharArray()),
-                group.nodeId,
-            )
+            mDatabaseViewModel.synchronizeKeeShare(group.nodeId, export = false)
         }
+    }
+
+    private fun showKeeShareDialog(groupId: GroupId) {
+        val group = mDatabase?.getGroupById(groupId) ?: return
+        val containerUri = PreferencesUtil.getKeeShareContainerUri(this, groupId.toString())
+            ?.let { Uri.parse(it) }
+        KeeShareDialogFragment.getInstance(groupId, group.title, containerUri)
+            .show(supportFragmentManager, KeeShareDialogFragment.TAG)
+    }
+
+    /**
+     * Save the KeeShare reference in the group, like KeePassXC, and link the container.
+     * The first synchronization starts once the group is saved.
+     */
+    private fun onKeeShareConfigured(result: Bundle) {
+        val database = mDatabase ?: return
+        val groupId: GroupId = result.getParcelableCompat(KeeShareDialogFragment.RESULT_GROUP_ID)
+            ?: return
+        val groupInfo = database.getGroupInfoById(groupId) ?: return
+        val groupKey = groupId.toString()
+        // Copy, the group info shares the custom data of the group
+        val customData = CustomData(groupInfo.customData)
+        if (result.getBoolean(KeeShareDialogFragment.RESULT_REMOVE)) {
+            customData.remove(KeeShareReference.CUSTOM_DATA_KEY)
+            PreferencesUtil.setKeeShareContainerUri(this, groupKey, null)
+        } else {
+            val containerUri: Uri = result.getParcelableCompat(KeeShareDialogFragment.RESULT_CONTAINER_URI)
+                ?: return
+            val previousReference = KeeShareReference.fromCustomData(customData)
+            val previousUri = PreferencesUtil.getKeeShareContainerUri(this, groupKey)
+            val reference = KeeShareReference(
+                type = result.getInt(KeeShareDialogFragment.RESULT_TYPE),
+                uuid = previousReference?.uuid?.takeIf { it != UUID(0, 0) } ?: UUID.randomUUID(),
+                // The path is only meaningful on the device that created it
+                path = if (previousReference != null && previousUri == containerUri.toString())
+                    previousReference.path
+                else
+                    result.getString(KeeShareDialogFragment.RESULT_CONTAINER_NAME) ?: "",
+                password = result.getString(KeeShareDialogFragment.RESULT_PASSWORD) ?: "",
+                keepGroups = result.getBoolean(KeeShareDialogFragment.RESULT_KEEP_GROUPS, true)
+            )
+            customData.put(CustomDataItem(
+                KeeShareReference.CUSTOM_DATA_KEY, reference.serialize(), DateInstant()
+            ))
+            PreferencesUtil.setKeeShareContainerUri(this, groupKey, containerUri.toString())
+        }
+        database.keeShareImportedVersions.remove(groupKey)
+        database.keeShareExportedSignatures.remove(groupKey)
+        groupInfo.customData = customData
+        updateGroup(groupInfo)
     }
 
     companion object {

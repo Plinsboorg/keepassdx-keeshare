@@ -50,4 +50,10 @@
         android:orderInCategory="1070"
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="ifRoom" />
+    <item android:id="@+id/menu_keeshare"
+        android:icon="@drawable/ic_share_white_24dp"
+        android:title="@string/keeshare"
+        android:orderInCategory="1080"
+        app:iconTint="?attr/colorControlNormal"
+        app:showAsAction="ifRoom" />
 </menu>

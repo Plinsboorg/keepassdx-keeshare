@@ -42,6 +42,7 @@ import com.kunzisoft.keepass.database.exception.DatabaseException
 import com.kunzisoft.keepass.database.exception.DatabaseInputException
 import com.kunzisoft.keepass.database.exception.DatabaseOutputException
 import com.kunzisoft.keepass.database.exception.FileNotFoundDatabaseException
+import com.kunzisoft.keepass.database.exception.KeeShareDatabaseException
 import com.kunzisoft.keepass.database.exception.MergeDatabaseKDBException
 import com.kunzisoft.keepass.database.exception.SignatureDatabaseException
 import com.kunzisoft.keepass.database.file.DatabaseHeaderKDB
@@ -51,6 +52,8 @@ import com.kunzisoft.keepass.database.file.input.DatabaseInputKDB
 import com.kunzisoft.keepass.database.file.input.DatabaseInputKDBX
 import com.kunzisoft.keepass.database.file.output.DatabaseOutputKDB
 import com.kunzisoft.keepass.database.file.output.DatabaseOutputKDBX
+import com.kunzisoft.keepass.database.keeshare.KeeShareReference
+import com.kunzisoft.keepass.database.keeshare.KeeShareSynchronizer
 import com.kunzisoft.keepass.database.merge.DatabaseKDBXMerger
 import com.kunzisoft.keepass.hardware.HardwareKey
 import com.kunzisoft.keepass.tasks.ProgressTaskUpdater
@@ -406,6 +409,52 @@ open class Database {
         return mDatabaseKDB?.getAllGroupsWithoutRoot()?.map { Group(it) }
             ?: mDatabaseKDBX?.getAllGroupsWithoutRoot()?.map { Group(it) }
             ?: listOf()
+    }
+
+    /**
+     * Synchronize the shared group [groupId] with its KeeShare container,
+     * import and export depending on the group reference, see [KeeShareSynchronizer]
+     * @param export false to only import
+     */
+    @Throws(DatabaseException::class)
+    fun synchronizeKeeShare(
+        groupId: GroupId,
+        export: Boolean,
+        containerInput: InputStream?,
+        containerOutput: () -> OutputStream?,
+        cacheDirectory: File,
+        limits: Limits,
+    ): KeeShareSynchronizer.Result {
+        val databaseKDBX = mDatabaseKDBX
+            ?: throw KeeShareDatabaseException("KeeShare requires a KDBX database")
+        val group = getGroupById(groupId)?.groupKDBX
+            ?: throw KeeShareDatabaseException("Shared group not found")
+        val reference = KeeShareReference.fromCustomData(group.customData)
+            ?: throw KeeShareDatabaseException("The group is not shared")
+        try {
+            return KeeShareSynchronizer(databaseKDBX, limits, cacheDirectory).synchronize(
+                sharedGroup = group,
+                reference = reference,
+                import = reference.isImporting,
+                export = export && reference.isExporting,
+                containerInput = containerInput,
+                containerOutput = containerOutput
+            )
+        } catch (e: DatabaseException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to synchronize the KeeShare container", e)
+            throw KeeShareDatabaseException(e.localizedMessage ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Changes when the content of the shared group [groupId] changes
+     */
+    fun keeShareContentSignature(groupId: GroupId): String? {
+        return getGroupById(groupId)?.groupKDBX?.let {
+            KeeShareSynchronizer.contentSignature(it)
+        }
     }
 
     /** Iterate all indexed groups that have non-empty custom data. */

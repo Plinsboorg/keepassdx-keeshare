@@ -36,10 +36,12 @@ import com.kunzisoft.keepass.app.database.CipherDatabaseAction
 import com.kunzisoft.keepass.app.database.FileDatabaseHistoryAction
 import com.kunzisoft.keepass.credentialprovider.activity.HardwareKeyActivity
 import com.kunzisoft.keepass.database.ContextualDatabase
+import com.kunzisoft.keepass.database.DatabaseTaskProvider.Companion.startDatabaseService
 import com.kunzisoft.keepass.database.MainCredential
 import com.kunzisoft.keepass.database.ProgressMessage
 import com.kunzisoft.keepass.database.action.BenchmarkKdfRunnable
 import com.kunzisoft.keepass.database.action.CreateDatabaseRunnable
+import com.kunzisoft.keepass.database.action.KeeShareSyncRunnable
 import com.kunzisoft.keepass.database.action.LoadDatabaseRunnable
 import com.kunzisoft.keepass.database.action.MergeDatabaseRunnable
 import com.kunzisoft.keepass.database.action.ReloadDatabaseRunnable
@@ -65,6 +67,7 @@ import com.kunzisoft.keepass.database.crypto.kdf.KdfEngine.Companion.DEFAULT_BEN
 import com.kunzisoft.keepass.database.element.EntryId
 import com.kunzisoft.keepass.database.element.GroupId
 import com.kunzisoft.keepass.database.element.database.CompressionAlgorithm
+import com.kunzisoft.keepass.database.keeshare.KeeShareReference
 import com.kunzisoft.keepass.hardware.HardwareKey
 import com.kunzisoft.keepass.model.CipherEncryptDatabase
 import com.kunzisoft.keepass.model.EntryInfo
@@ -358,7 +361,7 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
             ACTION_DATABASE_CREATE_TASK -> buildDatabaseCreateActionTask(intent, database)
             ACTION_DATABASE_LOAD_TASK -> buildDatabaseLoadActionTask(intent, database)
             ACTION_DATABASE_MERGE_TASK -> buildDatabaseMergeActionTask(intent, database)
-            ACTION_KEESHARE_MERGE_TASK -> buildKeeShareMergeActionTask(intent, database)
+            ACTION_KEESHARE_SYNC_TASK -> buildKeeShareSyncActionTask(intent, database)
             ACTION_DATABASE_RELOAD_TASK -> buildDatabaseReloadActionTask(database)
             ACTION_DATABASE_ASSIGN_CREDENTIAL_TASK -> buildDatabaseAssignCredentialActionTask(intent, database)
             ACTION_DATABASE_CREATE_GROUP_TASK -> buildDatabaseCreateGroupActionTask(intent, database)
@@ -395,7 +398,7 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
 
         // Sub action is an action in another action, don't perform pre and post action
         val isMainAction = intentAction != ACTION_CHALLENGE_RESPONDED
-                && intentAction != ACTION_KEESHARE_MERGE_TASK
+                && intentAction != ACTION_KEESHARE_SYNC_TASK
 
         // Build and launch the action
         if (actionRunnable != null) {
@@ -427,9 +430,9 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
                         actionRunnable
                     },
                     { result ->
-                        // KeeShare merges are silent sub-actions, but the UI still
+                        // KeeShare syncs are silent sub-actions, but the UI still
                         // needs the result to refresh the list or show an error
-                        if (intentAction == ACTION_KEESHARE_MERGE_TASK) {
+                        if (intentAction == ACTION_KEESHARE_SYNC_TASK) {
                             mActionTaskListeners.forEach { actionTaskListener ->
                                 actionTaskListener.onActionFinished(
                                     database,
@@ -455,6 +458,9 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
                                         intentAction!!,
                                         result
                                     )
+                                }
+                                if (save && result.isSuccess) {
+                                    startKeeShareSyncs(database)
                                 }
                             } finally {
                                 // Save the database info after performing action
@@ -950,20 +956,45 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
         }
     }
 
-    private fun buildKeeShareMergeActionTask(
+    private fun buildKeeShareSyncActionTask(
         intent: Intent,
         database: ContextualDatabase,
-    ): ActionRunnable {
-        val containerUri: Uri? = intent.getParcelableExtraCompat(DATABASE_URI_KEY)
-        val mainCredential: MainCredential? = intent.getParcelableExtraCompat(MAIN_CREDENTIAL_KEY)
-        val targetGroupId: GroupId? = intent.getParcelableExtraCompat(TARGET_GROUP_ID_KEY)
-        return MergeDatabaseRunnable(
-            this, containerUri, mainCredential,
-            { hardwareKey, seed -> retrieveResponseFromChallenge(hardwareKey, seed) },
-            database, false,
-            { hardwareKey, seed -> retrieveResponseFromChallenge(hardwareKey, seed) },
-            null, targetGroupId,
+    ): ActionRunnable? {
+        val groupId: GroupId = intent.getParcelableExtraCompat(KEESHARE_GROUP_ID_KEY)
+            ?: return null
+        return KeeShareSyncRunnable(
+            this,
+            database,
+            groupId,
+            intent.getBooleanExtra(KEESHARE_EXPORT_KEY, false),
+            { hardwareKey, seed -> retrieveResponseFromChallenge(hardwareKey, seed) }
         )
+    }
+
+    /**
+     * After a save, write back the shared groups changed since their last synchronization,
+     * like KeePassXC, and synchronize the groups linked but never synchronized yet
+     */
+    private fun startKeeShareSyncs(database: ContextualDatabase) {
+        if (!database.supportsKeeShare) return
+        database.forEachGroupWithCustomData { group ->
+            val reference = KeeShareReference.fromCustomData(group.customData)
+                ?: return@forEachGroupWithCustomData
+            val groupKey = group.nodeId.toString()
+            if (PreferencesUtil.getKeeShareContainerUri(this, groupKey) == null)
+                return@forEachGroupWithCustomData
+            val export = reference.isExporting
+                    && database.keeShareContentSignature(group.nodeId) !=
+                        database.keeShareExportedSignatures[groupKey]
+            val firstImport = reference.isImporting
+                    && !database.keeShareImportedVersions.containsKey(groupKey)
+            if (export || firstImport) {
+                startDatabaseService(Bundle().apply {
+                    putParcelable(KEESHARE_GROUP_ID_KEY, group.nodeId)
+                    putBoolean(KEESHARE_EXPORT_KEY, export)
+                }, ACTION_KEESHARE_SYNC_TASK)
+            }
+        }
     }
 
     private fun buildDatabaseReloadActionTask(
@@ -1481,8 +1512,9 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
         const val ACTION_DATABASE_CREATE_TASK = "ACTION_DATABASE_CREATE_TASK"
         const val ACTION_DATABASE_LOAD_TASK = "ACTION_DATABASE_LOAD_TASK"
         const val ACTION_DATABASE_MERGE_TASK = "ACTION_DATABASE_MERGE_TASK"
-        const val ACTION_KEESHARE_MERGE_TASK = "ACTION_KEESHARE_MERGE_TASK"
-        const val TARGET_GROUP_ID_KEY = "TARGET_GROUP_ID_KEY"
+        const val ACTION_KEESHARE_SYNC_TASK = "ACTION_KEESHARE_SYNC_TASK"
+        const val KEESHARE_GROUP_ID_KEY = "KEESHARE_GROUP_ID_KEY"
+        const val KEESHARE_EXPORT_KEY = "KEESHARE_EXPORT_KEY"
         const val ACTION_DATABASE_RELOAD_TASK = "ACTION_DATABASE_RELOAD_TASK"
         const val ACTION_DATABASE_ASSIGN_CREDENTIAL_TASK = "ACTION_DATABASE_ASSIGN_CREDENTIAL_TASK"
         const val ACTION_DATABASE_CREATE_GROUP_TASK = "ACTION_DATABASE_CREATE_GROUP_TASK"

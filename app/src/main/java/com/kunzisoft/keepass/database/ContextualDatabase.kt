@@ -50,6 +50,10 @@ class ContextualDatabase: DatabaseInfo() {
     // to import a container again only when it has changed
     val keeShareImportedVersions = mutableMapOf<String, Long>()
 
+    // KeeShare group ID to its content signature when it was last synchronized,
+    // to export a group only when it has changed
+    val keeShareExportedSignatures = mutableMapOf<String, String>()
+
     // File description
     var snapFileDatabaseInfo: SnapFileDatabaseInfo? = null
         private set
@@ -168,6 +172,7 @@ class ContextualDatabase: DatabaseInfo() {
     override fun clearIndexesAndBinaries(filesDirectory: File?) {
         iconDrawableFactory.clearCache()
         keeShareImportedVersions.clear()
+        keeShareExportedSignatures.clear()
         super.clearIndexesAndBinaries(filesDirectory)
     }
 

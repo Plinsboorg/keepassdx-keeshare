@@ -378,6 +378,14 @@ class GroupViewModel(application: Application): AndroidViewModel(application) {
         }
     }
 
+    fun onKeeShareNodeClicked() {
+        val node = _nodeActionState.value.selectedNodes.firstOrNull() as? GroupInfo ?: return
+        finishNodeAction()
+        viewModelScope.launch {
+            _viewEvent.emit(GroupEvent.KeeShareClicked(node.nodeId))
+        }
+    }
+
     fun onCopyNodesClicked() {
         val nodes = _nodeActionState.value.selectedNodes
         if (nodes.isNotEmpty()) {
