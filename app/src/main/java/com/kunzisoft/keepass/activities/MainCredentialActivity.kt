@@ -107,6 +107,7 @@ class MainCredentialActivity : DatabaseModeActivity() {
     private var infoContainerView: ViewGroup? = null
     private lateinit var coordinatorLayout: CoordinatorLayout
     private var deviceUnlockFragment: DeviceUnlockFragment? = null
+    private var mSkipDeviceUnlockConnect = false
 
     private val mMainCredentialViewModel: MainCredentialViewModel by viewModels()
     private val mDeviceUnlockViewModel: DeviceUnlockViewModel? by lazy {
@@ -186,12 +187,9 @@ class MainCredentialActivity : DatabaseModeActivity() {
         val launchImmediately = intent.getBooleanExtra(KEY_LAUNCH_IMMEDIATELY, false)
         intent.removeExtra(KEY_LAUNCH_IMMEDIATELY)
         if (launchImmediately) {
+            // Device unlock is connected on the next resume, not during this load
+            mSkipDeviceUnlockConnect = true
             loadDatabase()
-        } else {
-            // Init Biometric elements
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                mDeviceUnlockViewModel?.connect(mMainCredentialViewModel.databaseFileUri)
-            }
         }
         // To validate with the keyboard
         mainCredentialView.onValidateListener = {
@@ -325,6 +323,8 @@ class MainCredentialActivity : DatabaseModeActivity() {
     override fun onResume() {
         super.onResume()
 
+        val skipDeviceUnlockConnect = mSkipDeviceUnlockConnect
+        mSkipDeviceUnlockConnect = false
         // Init Biometric elements only if allowed
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
             && PreferencesUtil.isDeviceUnlockEnable(this)) {
@@ -340,6 +340,11 @@ class MainCredentialActivity : DatabaseModeActivity() {
                         )
                     }
                 }
+            }
+            // Connect here and not only in onCreate: device unlock may have been enabled
+            // in the settings since, and storing the credential needs the database URI
+            if (!skipDeviceUnlockConnect) {
+                mDeviceUnlockViewModel?.connect(mMainCredentialViewModel.databaseFileUri)
             }
         }
 
