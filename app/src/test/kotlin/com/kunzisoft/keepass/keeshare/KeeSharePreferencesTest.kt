@@ -72,4 +72,11 @@ class KeeSharePreferencesTest {
         PreferencesUtil.setKeeShareContainerUri(context, uuid, "content://new")
         assertEquals("content://new", PreferencesUtil.getKeeShareContainerUri(context, uuid))
     }
+
+    @Test
+    fun listAllContainerUris() {
+        PreferencesUtil.setKeeShareContainerUri(context, "list-1", "content://a")
+        PreferencesUtil.setKeeShareContainerUri(context, "list-2", "content://b")
+        assertEquals(setOf("content://a", "content://b"), PreferencesUtil.getKeeShareContainerUris(context))
+    }
 }

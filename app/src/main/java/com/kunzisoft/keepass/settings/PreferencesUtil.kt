@@ -1028,4 +1028,11 @@ object PreferencesUtil {
         return PreferenceManager.getDefaultSharedPreferences(context)
             .getString(KEESHARE_CONTAINER_PREFIX + groupId, null)
     }
+
+    /** All stored KeeShare container URIs, whose file permissions must be kept. */
+    fun getKeeShareContainerUris(context: Context): Set<String> {
+        return PreferenceManager.getDefaultSharedPreferences(context).all
+            .filterKeys { it.startsWith(KEESHARE_CONTAINER_PREFIX) }
+            .values.filterIsInstance<String>().toSet()
+    }
 }

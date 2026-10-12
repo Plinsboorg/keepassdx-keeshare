@@ -32,6 +32,7 @@ import com.kunzisoft.keepass.BuildConfig
 import com.kunzisoft.keepass.R
 import com.kunzisoft.keepass.app.database.FileDatabaseHistoryAction
 import com.kunzisoft.keepass.education.Education
+import com.kunzisoft.keepass.settings.PreferencesUtil
 import java.io.File
 
 
@@ -149,6 +150,10 @@ object UriUtil {
                     it.keyFileUri?.let { keyFileUri ->
                         listToNotRemove.add(keyFileUri)
                     }
+                }
+                // KeeShare containers are opened on each database load
+                PreferencesUtil.getKeeShareContainerUris(appContext).forEach { containerUri ->
+                    listToNotRemove.add(Uri.parse(containerUri))
                 }
                 // Remove URI permission for not database files
                 val resolver = appContext.contentResolver
