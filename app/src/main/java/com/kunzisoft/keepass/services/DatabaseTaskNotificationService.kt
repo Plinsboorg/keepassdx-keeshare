@@ -433,6 +433,13 @@ open class DatabaseTaskNotificationService : LockNotificationService(), Progress
                         // KeeShare syncs are silent sub-actions, but the UI still
                         // needs the result to refresh the list or show an error
                         if (intentAction == ACTION_KEESHARE_SYNC_TASK) {
+                            // The sync saves the database itself when the import
+                            // changed the group, not an outside modification
+                            if (result.data?.getBoolean(
+                                    KeeShareSyncRunnable.GROUP_CHANGED_KEY) == true
+                                && !database.isReadOnly) {
+                                saveDatabaseInfo()
+                            }
                             mActionTaskListeners.forEach { actionTaskListener ->
                                 actionTaskListener.onActionFinished(
                                     database,
